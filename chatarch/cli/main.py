@@ -6,8 +6,10 @@ from rich import print as rprint
 from pathlib import Path
 
 from chatarch.db.database import init_db, SessionLocal
-from chatarch.core.session import create_session_with_message, get_recent_sessions
+from chatarch.core.session import create_session_with_message, get_recent_sessions, search_sessions_fts, get_session_by_id
 from chatarch.core.parser import get_parser
+from rich.panel import Panel
+from rich.markdown import Markdown
 
 app = typer.Typer(help="ChatArch: 聊天资产管理 CLI 工具")
 console = Console()
@@ -137,8 +139,81 @@ def search_sessions(
     """
     全文检索历史对话
     """
-    console.print(f"🔍 搜索关键词: [bold]{query}[/bold]")
-    # TODO: 接入 FTS5 检索逻辑
+    console.print(f"🔍 搜索关键词: [bold]{query}[/bold] (Role: {role or 'All'})")
+    
+    db = SessionLocal()
+    try:
+        results = search_sessions_fts(db, query, role=role)
+        
+        if not results:
+            console.print("[yellow]未找到任何匹配的结果。[/yellow]")
+            return
+            
+        table = Table(title=f"'{query}' 的搜索结果")
+        table.add_column("ID", justify="left", style="cyan", no_wrap=True)
+        table.add_column("标题", style="magenta")
+        table.add_column("匹配上下文", style="green")
+        
+        for session, snippet in results:
+            table.add_row(session.id[:8], session.title, snippet)
+            
+        console.print(table)
+        console.print(f"\n💡 提示: 使用 [bold cyan]chatasset show <ID>[/bold cyan] 查看完整会话内容。")
+        
+    except Exception as e:
+        console.print(f"[bold red]✗ 搜索时发生错误：[/bold red] {e}")
+    finally:
+        db.close()
+
+@app.command(name="show")
+def show_session(
+    session_id: str = typer.Argument(..., help="会话的短 ID 或完整 ID"),
+    limit: int = typer.Option(None, "--limit", "-l", help="最多显示几条消息")
+):
+    """
+    查看具体会话详情与对话流
+    """
+    db = SessionLocal()
+    try:
+        session = get_session_by_id(db, session_id)
+        
+        if not session:
+            console.print(f"[bold red]✗ 找不到 ID 为 {session_id} 的会话。[/bold red]")
+            raise typer.Exit(1)
+            
+        # 打印元数据
+        meta_table = Table(show_header=False, box=None)
+        meta_table.add_row("[bold cyan]会话 ID:[/bold cyan]", session.id)
+        meta_table.add_row("[bold cyan]标    题:[/bold cyan]", f"[bold magenta]{session.title}[/bold magenta]")
+        meta_table.add_row("[bold cyan]平    台:[/bold cyan]", str(session.model_platform))
+        meta_table.add_row("[bold cyan]标    签:[/bold cyan]", str(session.tags))
+        meta_table.add_row("[bold cyan]创建时间:[/bold cyan]", session.created_at.strftime("%Y-%m-%d %H:%M:%S"))
+        
+        console.print(Panel(meta_table, title="会话信息", border_style="blue"))
+        console.print("\n")
+        
+        # 打印消息
+        messages = session.messages
+        if limit:
+            messages = messages[-limit:]
+            
+        for msg in messages:
+            # 根据角色定义样式
+            role_style = "green" if msg.role == "user" else "magenta"
+            icon = "🧑" if msg.role == "user" else "🤖"
+            
+            # 使用 Rich 的 Markdown 渲染
+            md = Markdown(msg.content)
+            
+            console.print(f"{icon} [bold {role_style}]{msg.role.capitalize()}[/bold {role_style}] [dim]({msg.timestamp.strftime('%H:%M:%S')})[/dim]")
+            console.print(Panel(md, border_style=role_style))
+            console.print()
+            
+    except Exception as e:
+        console.print(f"[bold red]✗ 查询失败：[/bold red] {e}")
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     app()
+

@@ -1,5 +1,6 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from sqlalchemy.orm import Session as DbSession
+from sqlalchemy import text
 from chatarch.db.models import Session, Message
 
 def create_session_with_message(
@@ -47,3 +48,68 @@ def get_recent_sessions(db: DbSession, limit: int = 10, tag: Optional[str] = Non
         
     query = query.order_by(Session.created_at.desc()).limit(limit)
     return query.all()
+
+def get_session_by_id(db: DbSession, session_id: str) -> Optional[Session]:
+    """通过精确 ID 或短 ID 获取会话"""
+    # 尝试精确匹配
+    session = db.query(Session).filter(Session.id == session_id).first()
+    if session:
+        return session
+    
+    # 尝试短前缀匹配
+    session = db.query(Session).filter(Session.id.startswith(session_id)).first()
+    return session
+
+def search_sessions_fts(db: DbSession, query_str: str, role: Optional[str] = None) -> List[Tuple[Session, str]]:
+    """
+    使用 FTS5 执行全文检索。
+    返回 List[Tuple[Session, snippet]], 其中 snippet 是高亮的上下文片段。
+    """
+    # SQLite FTS5 的 MATCH 语法
+    # 搜索包含在 titles/tags 以及 messages 内容中的数据
+    
+    # 查询标题或标签命中的会话
+    session_fts_query = """
+        SELECT id, snippet(sessions_fts, 1, '[bold cyan]', '[/bold cyan]', '...', 10) as snip
+        FROM sessions_fts 
+        WHERE sessions_fts MATCH :q
+    """
+    
+    # 查询消息内容命中的会话
+    msg_fts_query = """
+        SELECT session_id as id, snippet(messages_fts, 3, '[bold cyan]', '[/bold cyan]', '...', 10) as snip
+        FROM messages_fts 
+        WHERE messages_fts MATCH :q
+    """
+    
+    if role:
+        # FTS5 中限定特定字段搜索的方式: role:user AND <query>
+        fts_match_str = f"role:{role} AND {query_str}"
+    else:
+        fts_match_str = query_str
+        
+    session_results = db.execute(text(session_fts_query), {"q": query_str}).fetchall()
+    msg_results = db.execute(text(msg_fts_query), {"q": fts_match_str}).fetchall()
+    
+    # 聚合结果
+    hit_map = {} # session_id -> snippet
+    
+    for row in session_results:
+        hit_map[row.id] = f"标题/标签命中: {row.snip}"
+        
+    for row in msg_results:
+        # 消息命中优先级/覆盖
+        if row.id not in hit_map:
+            hit_map[row.id] = f"内容命中: {row.snip}"
+        else:
+            hit_map[row.id] += f" | 内容命中: {row.snip}"
+            
+    if not hit_map:
+        return []
+        
+    # 查询真实的 Session 实体
+    # 注意：在数据量极大时，使用 in_ 会有数量限制，但这满足 MVP
+    sessions = db.query(Session).filter(Session.id.in_(hit_map.keys())).order_by(Session.created_at.desc()).limit(50).all()
+    
+    return [(s, hit_map[s.id]) for s in sessions]
+
