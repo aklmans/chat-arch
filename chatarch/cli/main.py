@@ -8,6 +8,7 @@ from pathlib import Path
 from chatarch.db.database import init_db, SessionLocal
 from chatarch.core.session import create_session_with_message, get_recent_sessions, search_sessions_fts, get_session_by_id
 from chatarch.core.parser import get_parser
+from chatarch.core.exporter import get_exporter
 from rich.panel import Panel
 from rich.markdown import Markdown
 
@@ -211,6 +212,52 @@ def show_session(
             
     except Exception as e:
         console.print(f"[bold red]✗ 查询失败：[/bold red] {e}")
+    finally:
+        db.close()
+
+@app.command(name="export")
+def export_sessions(
+    session_id: str = typer.Option(None, "--id", "-i", help="要导出的会话短 ID 或完整 ID"),
+    tag: str = typer.Option(None, "--tag", "-t", help="按标签批量导出"),
+    format: str = typer.Option("markdown", "--format", "-f", help="导出格式: markdown, md, jsonl"),
+    output: str = typer.Option(..., "--output", "-o", help="导出的目标文件路径")
+):
+    """
+    按格式将会话导出到文件
+    """
+    if not session_id and not tag:
+        console.print("[bold red]✗ 必须指定 --id 或 --tag 中的一项以确定导出范围。[/bold red]")
+        raise typer.Exit(1)
+        
+    db = SessionLocal()
+    try:
+        sessions = []
+        if session_id:
+            session = get_session_by_id(db, session_id)
+            if not session:
+                console.print(f"[bold red]✗ 找不到 ID 为 {session_id} 的会话。[/bold red]")
+                raise typer.Exit(1)
+            sessions.append(session)
+        elif tag:
+            sessions = get_recent_sessions(db, limit=1000, tag=tag) # V1 默认取前1000条
+            if not sessions:
+                console.print(f"[yellow]找不到带有标签 '{tag}' 的任何会话。[/yellow]")
+                return
+                
+        output_path = Path(output)
+        
+        # 获取对应格式的导出器
+        exporter = get_exporter(format)
+        
+        console.print(f"正在导出 [bold green]{len(sessions)}[/bold green] 条会话到 [cyan]{output_path}[/cyan] (格式: {format})...")
+        exporter.export(sessions, output_path)
+        
+        console.print("[bold green]✓ 导出成功！[/bold green]")
+        
+    except ValueError as e:
+        console.print(f"[bold red]✗ 格式错误：[/bold red] {e}")
+    except Exception as e:
+        console.print(f"[bold red]✗ 导出失败：[/bold red] {e}")
     finally:
         db.close()
 
