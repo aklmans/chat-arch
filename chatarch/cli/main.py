@@ -1,10 +1,13 @@
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.progress import track
 from rich import print as rprint
+from pathlib import Path
 
 from chatarch.db.database import init_db, SessionLocal
 from chatarch.core.session import create_session_with_message, get_recent_sessions
+from chatarch.core.parser import get_parser
 
 app = typer.Typer(help="ChatArch: 聊天资产管理 CLI 工具")
 console = Console()
@@ -45,14 +48,45 @@ def add_session(
 @app.command(name="import")
 def import_sessions(
     source: str = typer.Option(..., "--source", "-s", help="文件或目录路径"),
-    format: str = typer.Option("markdown", "--format", "-f", help="导入格式: openai, markdown, txt"),
+    format: str = typer.Option("openai", "--format", "-f", help="导入格式: openai, markdown, txt"),
     tags: str = typer.Option("", "--tags", help="附加标签 (逗号分隔)")
 ):
     """
     从外部文件或目录导入聊天记录
     """
-    console.print(f"正在从 [cyan]{source}[/cyan] 导入数据 (格式: {format})...")
-    # TODO: 实现解析器与入库逻辑
+    source_path = Path(source)
+    if not source_path.exists():
+        console.print(f"[bold red]✗ 错误：[/bold red] 找不到路径 {source}")
+        raise typer.Exit(1)
+
+    console.print(f"正在准备从 [cyan]{source}[/cyan] 导入数据 (格式: {format})...")
+    
+    db = SessionLocal()
+    try:
+        parser = get_parser(format)
+        sessions = parser.parse(source_path, default_tags=tags)
+        
+        if not sessions:
+            console.print("[yellow]未在文件中找到任何有效的会话记录。[/yellow]")
+            return
+
+        console.print(f"解析成功，共找到 [bold green]{len(sessions)}[/bold green] 条会话，开始写入数据库...")
+        
+        # 批量保存到数据库，使用 Rich 进度条
+        for session in track(sessions, description="正在入库..."):
+            db.add(session)
+        
+        db.commit()
+        console.print("[bold green]✓ 导入完成！[/bold green]")
+        
+    except ValueError as e:
+        console.print(f"[bold red]✗ 解析错误：[/bold red] {e}")
+    except Exception as e:
+        console.print(f"[bold red]✗ 导入过程中发生未知错误：[/bold red] {e}")
+        db.rollback()
+    finally:
+        db.close()
+
 
 @app.command(name="list")
 def list_sessions(

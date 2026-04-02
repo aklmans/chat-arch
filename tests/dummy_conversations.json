@@ -1,0 +1,58 @@
+[
+  {
+    "id": "mock-uuid-1",
+    "title": "如何用 Python 编写解释器",
+    "create_time": 1712059200.0,
+    "update_time": 1712059500.0,
+    "mapping": {
+      "node1": {
+        "id": "node1",
+        "message": {
+          "id": "msg1",
+          "author": {"role": "system"},
+          "create_time": 1712059200.0,
+          "content": {"content_type": "text", "parts": ["You are a helpful assistant."]}
+        },
+        "parent": null,
+        "children": ["node2"]
+      },
+      "node2": {
+        "id": "node2",
+        "message": {
+          "id": "msg2",
+          "author": {"role": "user"},
+          "create_time": 1712059210.0,
+          "content": {"content_type": "text", "parts": ["请介绍一下如何实现一个简单的 Python 解释器。"]}
+        },
+        "parent": "node1",
+        "children": ["node3"]
+      },
+      "node3": {
+        "id": "node3",
+        "message": {
+          "id": "msg3",
+          "author": {"role": "assistant"},
+          "create_time": 1712059220.0,
+          "content": {"content_type": "text", "parts": ["要实现解释器，你需要先做词法分析，然后做语法分析生成 AST，最后编写一个求值器遍历 AST。"]}
+        },
+        "parent": "node2",
+        "children": []
+      }
+    }
+  },
+  {
+    "id": "mock-uuid-2",
+    "title": "废弃的空对话",
+    "create_time": 1712060000.0,
+    "mapping": {
+      "empty1": {
+        "id": "empty1",
+        "message": {
+          "id": "empty-msg",
+          "author": {"role": "user"},
+          "content": {"content_type": "text", "parts": [""]}
+        }
+      }
+    }
+  }
+]
