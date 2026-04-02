@@ -67,13 +67,13 @@ class MarkdownParser(BaseParser):
                 current_role = role_match.group(1).lower()
                 continue
                 
-            # 如果是其他元数据 (如 `> **平台**: ChatGPT` 等，暂简单跳过或作为普通文本处理)
-            # 这里简单处理，把它当作普通正文，因为用户可能在对话中引用这类文本
-            # 我们尽量保持最大兼容性，不随便丢弃文本
-            if clean_line.startswith("> **ID**:") or clean_line.startswith("> **平台**:"):
-                # 如果正处于刚刚切换角色的空白期，我们容忍跳过导出器生成的元数据
-                if not current_content_buffer and len(messages) == 0:
-                    continue
+            # 处理开头的冗余元数据 (仅在还没有任何真实消息之前)
+            if len(messages) == 0:
+                if clean_line.startswith("> **") or clean_line == "":
+                    # 如果只有空白行或元数据，并且还没碰到过真正的非空白文本，就丢弃
+                    # 为了判断是不是真正的文本，我们检查 buffer 里是不是全空
+                    if all(not line.strip() for line in current_content_buffer):
+                        continue
                     
             current_content_buffer.append(line.rstrip('\n'))
             
