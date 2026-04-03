@@ -57,7 +57,7 @@ def add_session(
 @app.command(name="import")
 def import_sessions(
     source: str = typer.Option(..., "--source", "-s", help="文件或目录路径"),
-    format: str = typer.Option("openai", "--format", "-f", help="导入格式: openai, markdown, txt"),
+    format: str = typer.Option("openai", "--format", "-f", help="导入格式: openai, claude, markdown, txt"),
     tags: str = typer.Option("", "--tags", help="附加标签 (逗号分隔)")
 ):
     """
