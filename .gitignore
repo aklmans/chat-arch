@@ -19,3 +19,5 @@ build/
 *.db
 *.sqlite
 *.sqlite3
+cil.png
+main.py
