@@ -15,8 +15,15 @@ from chatarch.core.session import (
 )
 from chatarch.core.parser import get_parser
 from chatarch.core.exporter import get_exporter
+from chatarch.core.stats import (
+    get_basic_stats,
+    get_platform_distribution,
+    get_tag_distribution,
+    get_daily_trend
+)
 from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.columns import Columns
 
 app = typer.Typer(help="ChatArch: 聊天资产管理 CLI 工具")
 console = Console()
@@ -332,6 +339,66 @@ def edit_session(
          console.print(f"[bold red]✗ 保存失败（数据格式错误）：[/bold red] {e}")
     except Exception as e:
         console.print(f"[bold red]✗ 发生未知错误：[/bold red] {e}")
+    finally:
+        db.close()
+
+@app.command(name="stats")
+def show_stats():
+    """
+    查看知识库的资产统计看板
+    """
+    db = SessionLocal()
+    try:
+        basic_stats = get_basic_stats(db)
+        if basic_stats["total_sessions"] == 0:
+            console.print("[yellow]当前数据库为空，没有可统计的数据。[/yellow]")
+            return
+            
+        # 1. 基础信息面板
+        p1 = Panel(f"[bold green]{basic_stats['total_sessions']}[/bold green]", title="总会话数", expand=False)
+        p2 = Panel(f"[bold blue]{basic_stats['total_messages']}[/bold blue]", title="总消息数", expand=False)
+        console.print(Columns([p1, p2]))
+        console.print()
+        
+        # 2. 平台分布表格
+        platforms = get_platform_distribution(db)
+        plat_table = Table(title="来源平台分布", show_edge=False, title_style="bold magenta")
+        plat_table.add_column("平台", style="cyan")
+        plat_table.add_column("数量", justify="right", style="green")
+        for plat, count in platforms:
+            plat_table.add_row(plat, str(count))
+            
+        # 3. 标签分布表格
+        tags = get_tag_distribution(db, limit=10)
+        tag_table = Table(title="热门标签 TOP 10", show_edge=False, title_style="bold yellow")
+        tag_table.add_column("标签", style="cyan")
+        tag_table.add_column("数量", justify="right", style="green")
+        for tag, count in tags:
+            tag_table.add_row(tag, str(count))
+            
+        console.print(Columns([plat_table, tag_table]))
+        console.print()
+        
+        # 4. 近期活跃趋势
+        trend = get_daily_trend(db, days=14)
+        if trend:
+            trend_table = Table(title="近 14 天入库趋势", show_edge=False, title_style="bold cyan")
+            trend_table.add_column("日期", style="blue")
+            trend_table.add_column("新增会话", style="green")
+            trend_table.add_column("趋势")
+            
+            max_count = max(count for _, count in trend)
+            
+            for day, count in trend:
+                # 简单 ASCII 进度条
+                bar_len = int((count / max_count) * 20) if max_count > 0 else 0
+                bar = "█" * bar_len
+                trend_table.add_row(day, str(count), f"[green]{bar}[/green]")
+                
+            console.print(trend_table)
+        
+    except Exception as e:
+        console.print(f"[bold red]✗ 统计失败：[/bold red] {e}")
     finally:
         db.close()
 
