@@ -6,6 +6,7 @@ from rich import print as rprint
 from pathlib import Path
 
 from chatarch.db.database import init_db, SessionLocal
+from chatarch.db.models import Session as DBSession, Message as DBMessage
 from chatarch.core.session import (
     create_session_with_message, 
     get_recent_sessions, 
@@ -24,6 +25,11 @@ from chatarch.core.stats import (
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.columns import Columns
+from rich.layout import Layout
+from rich.align import Align
+from rich.text import Text
+from rich import box
+from sqlalchemy import func
 
 app = typer.Typer(help="ChatArch: 聊天资产管理 CLI 工具")
 console = Console()
@@ -351,51 +357,75 @@ def show_stats():
     try:
         basic_stats = get_basic_stats(db)
         if basic_stats["total_sessions"] == 0:
-            console.print("[yellow]当前数据库为空，没有可统计的数据。[/yellow]")
+            console.print(Panel("当前数据库为空，没有可统计的数据。快去导入一些聊天记录吧！", style="yellow", border_style="yellow"))
             return
             
-        # 1. 基础信息面板
-        p1 = Panel(f"[bold green]{basic_stats['total_sessions']}[/bold green]", title="总会话数", expand=False)
-        p2 = Panel(f"[bold blue]{basic_stats['total_messages']}[/bold blue]", title="总消息数", expand=False)
-        console.print(Columns([p1, p2]))
+        # --- 头部标题 ---
+        title = Text("📊 ChatArch 资产统计看板", style="bold white on blue", justify="center")
+        console.print(Panel(title, box=box.DOUBLE_EDGE, border_style="blue"))
         console.print()
+
+        # --- 1. 基础信息面板 (并排显示) ---
+        # 获取 Token 估算值
+        token_count = db.query(func.sum(DBSession.token_count)).scalar() or 0
+        # 获取消息表的 token 总和（如果需要合并的话），这里简单估算会话字数
         
-        # 2. 平台分布表格
+        p1 = Panel(Align.center(Text(str(basic_stats['total_sessions']), style="bold green", justify="center")), title="[b]总会话数[/b]", border_style="green", padding=(1, 5))
+        p2 = Panel(Align.center(Text(str(basic_stats['total_messages']), style="bold cyan", justify="center")), title="[b]总消息数[/b]", border_style="cyan", padding=(1, 5))
+        p3 = Panel(Align.center(Text(str(token_count), style="bold yellow", justify="center")), title="[b]预估 Token[/b]", border_style="yellow", padding=(1, 5))
+
+        console.print(Columns([p1, p2, p3], expand=True))
+        console.print()
+
+        # --- 2. 中间布局：平台分布与热门标签 ---
         platforms = get_platform_distribution(db)
-        plat_table = Table(title="来源平台分布", show_edge=False, title_style="bold magenta")
+        plat_table = Table(show_header=True, header_style="bold magenta", box=box.SIMPLE_HEAD, expand=True)
         plat_table.add_column("平台", style="cyan")
-        plat_table.add_column("数量", justify="right", style="green")
+        plat_table.add_column("数量", justify="right", style="bold green")
         for plat, count in platforms:
-            plat_table.add_row(plat, str(count))
+            pct = (count / basic_stats['total_sessions']) * 100
+            plat_table.add_row(f"🌍 {plat}", f"{count} [dim]({pct:.1f}%)[/dim]")
             
-        # 3. 标签分布表格
         tags = get_tag_distribution(db, limit=10)
-        tag_table = Table(title="热门标签 TOP 10", show_edge=False, title_style="bold yellow")
+        tag_table = Table(show_header=True, header_style="bold yellow", box=box.SIMPLE_HEAD, expand=True)
         tag_table.add_column("标签", style="cyan")
-        tag_table.add_column("数量", justify="right", style="green")
+        tag_table.add_column("引用数", justify="right", style="bold green")
         for tag, count in tags:
-            tag_table.add_row(tag, str(count))
-            
-        console.print(Columns([plat_table, tag_table]))
+            tag_table.add_row(f"🏷️ {tag}", str(count))
+
+        p_plat = Panel(plat_table, title="[b]来源平台分布[/b]", border_style="magenta", padding=(1, 2))
+        p_tag = Panel(tag_table, title="[b]热门标签 TOP 10[/b]", border_style="yellow", padding=(1, 2))
+        
+        console.print(Columns([p_plat, p_tag], expand=True))
         console.print()
         
-        # 4. 近期活跃趋势
+        # --- 3. 底部布局：近期活跃趋势 ---
         trend = get_daily_trend(db, days=14)
         if trend:
-            trend_table = Table(title="近 14 天入库趋势", show_edge=False, title_style="bold cyan")
-            trend_table.add_column("日期", style="blue")
-            trend_table.add_column("新增会话", style="green")
-            trend_table.add_column("趋势")
+            trend_table = Table(show_header=False, box=None, padding=(0, 2))
+            trend_table.add_column("日期", style="dim", width=12)
+            trend_table.add_column("柱状图", width=40)
+            trend_table.add_column("新增量", justify="right", style="bold green")
             
             max_count = max(count for _, count in trend)
             
             for day, count in trend:
-                # 简单 ASCII 进度条
-                bar_len = int((count / max_count) * 20) if max_count > 0 else 0
-                bar = "█" * bar_len
-                trend_table.add_row(day, str(count), f"[green]{bar}[/green]")
+                # 渐变柱状图效果
+                bar_len = int((count / max_count) * 30) if max_count > 0 else 0
+                bar_str = "█" * bar_len
                 
-            console.print(trend_table)
+                # 根据高度动态着色
+                if bar_len > 20:
+                    bar_style = "bold green"
+                elif bar_len > 10:
+                    bar_style = "bold yellow"
+                else:
+                    bar_style = "bold red"
+                
+                bar_text = Text(bar_str, style=bar_style)
+                trend_table.add_row(day, bar_text, str(count))
+                
+            console.print(Panel(trend_table, title="[b]📈 近 14 天资产入库活跃度[/b]", border_style="cyan", padding=(1, 2)))
         
     except Exception as e:
         console.print(f"[bold red]✗ 统计失败：[/bold red] {e}")
