@@ -59,11 +59,15 @@ def enrich_session(session: Session, provider_name: Optional[str] = None) -> Dic
 请阅读以下聊天记录上下文，并为其生成：
 1. 一段精确且简短的摘要（50字以内）。
 2. 提取 3-5 个最相关的英文或中文标签（小写，不要带有空格）。
+3. 提取会话中出现的待办事项 (TODO) 列表。如果没有，返回空数组。
+4. 提取会话中出现的高频或高质量提示词 (Prompt)。如果没有，返回空数组。
 
 你必须只输出一个严格合法的 JSON 对象，不要输出任何 Markdown 标记 (如 ```json) 或多余的文字说明，格式如下：
 {
   "summary": "这是一段关于 xxx 的讨论，主要解决了 yyy 问题。",
-  "tags": ["python", "cli", "bug-fix"]
+  "tags": ["python", "cli", "bug-fix"],
+  "todos": ["修复 API 调用的 user-agent 覆盖问题", "重构数据库表结构"],
+  "prompts": ["你是一个专业的代码审查专家，请帮我检查以下代码是否存在性能瓶颈：..."]
 }
 """
     try:
@@ -91,7 +95,9 @@ def enrich_session(session: Session, provider_name: Optional[str] = None) -> Dic
         result = json.loads(content)
         return {
             "summary": result.get("summary", ""),
-            "tags": result.get("tags", [])
+            "tags": result.get("tags", []),
+            "todos": result.get("todos", []),
+            "prompts": result.get("prompts", [])
         }
         
     except json.JSONDecodeError as e:

@@ -36,6 +36,10 @@ class Session(Base):
     privacy_level = Column(String, nullable=True)
     version = Column(Integer, default=1)
     note = Column(Text, nullable=True)
+    
+    # 新增：用于存储从会话中提取的待办事项和高质量提示词，可以存为 JSON 字符串
+    todos = Column(Text, nullable=True)
+    prompts = Column(Text, nullable=True)
 
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan", order_by="Message.sequence")
 

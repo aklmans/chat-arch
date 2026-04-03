@@ -23,6 +23,14 @@ Base = declarative_base()
 def setup_fts(connection):
     """设置 SQLite FTS5 虚拟表及触发器，以支持全文检索"""
     
+    # 动态检查并添加新字段（支持数据库迁移升级）
+    result = connection.execute(text("PRAGMA table_info(sessions)")).fetchall()
+    columns = [row[1] for row in result]
+    if "todos" not in columns:
+        connection.execute(text("ALTER TABLE sessions ADD COLUMN todos TEXT"))
+    if "prompts" not in columns:
+        connection.execute(text("ALTER TABLE sessions ADD COLUMN prompts TEXT"))
+    
     # 会话标题和标签的 FTS
     connection.execute(text('''
         CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5(

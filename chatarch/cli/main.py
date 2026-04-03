@@ -1,4 +1,5 @@
 import typer
+import json
 from rich.console import Console
 from rich.table import Table
 from rich.progress import track
@@ -235,6 +236,22 @@ def show_session(
         meta_table.add_row("[bold cyan]标    签:[/bold cyan]", str(session.tags))
         meta_table.add_row("[bold cyan]创建时间:[/bold cyan]", session.created_at.strftime("%Y-%m-%d %H:%M:%S"))
         
+        if session.todos:
+            try:
+                todos_list = json.loads(session.todos)
+                if todos_list:
+                    meta_table.add_row("[bold cyan]待办事项:[/bold cyan]", "\n".join(f"- {t}" for t in todos_list))
+            except Exception:
+                pass
+                
+        if session.prompts:
+            try:
+                prompts_list = json.loads(session.prompts)
+                if prompts_list:
+                    meta_table.add_row("[bold cyan]优质提示:[/bold cyan]", "\n".join(f"- {p}" for p in prompts_list))
+            except Exception:
+                pass
+        
         console.print(Panel(meta_table, title="会话信息", border_style="blue"))
         console.print("\n")
         
@@ -441,7 +458,7 @@ def enrich_session_cmd(
     provider: str = typer.Option(None, "--provider", "-p", help="指定 LLM 提供商 (如: kimi, claude-code, ollama)")
 ):
     """
-    🧠 AI 智能提炼：自动为会话生成摘要和推荐标签
+    🧠 AI 智能提炼：自动为会话生成摘要和推荐标签，提取 TODO 任务与高质量 Prompt。
     """
     db = SessionLocal()
     try:
@@ -457,6 +474,8 @@ def enrich_session_cmd(
         
         new_summary = result.get("summary")
         new_tags = result.get("tags", [])
+        new_todos = result.get("todos", [])
+        new_prompts = result.get("prompts", [])
         
         # 更新数据库中的会话
         session.summary = new_summary
@@ -466,10 +485,20 @@ def enrich_session_cmd(
         updated_tags = existing_tags.union(set(new_tags))
         session.tags = ", ".join(sorted(list(updated_tags)))
         
+        # 保存 todos 和 prompts
+        session.todos = json.dumps(new_todos, ensure_ascii=False) if new_todos else None
+        session.prompts = json.dumps(new_prompts, ensure_ascii=False) if new_prompts else None
+        
         db.commit()
         
         # 结果展示
-        console.print(Panel(f"[bold green]摘要:[/bold green]\n{new_summary}\n\n[bold yellow]推荐标签:[/bold yellow]\n{', '.join(new_tags)}", title="✨ AI 提炼结果", border_style="green"))
+        display_text = f"[bold green]摘要:[/bold green]\n{new_summary}\n\n[bold yellow]推荐标签:[/bold yellow]\n{', '.join(new_tags)}"
+        if new_todos:
+            display_text += f"\n\n[bold cyan]提取的 TODO:[/bold cyan]\n" + "\n".join(f"- {t}" for t in new_todos)
+        if new_prompts:
+            display_text += f"\n\n[bold magenta]提取的高频/高质量 Prompt:[/bold magenta]\n" + "\n".join(f"- {p}" for p in new_prompts)
+            
+        console.print(Panel(display_text, title="✨ AI 提炼结果", border_style="green"))
         console.print(f"[dim]已更新入库。当前所有标签: {session.tags}[/dim]")
         
     except Exception as e:
