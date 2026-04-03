@@ -2,6 +2,7 @@ from typing import List, Optional, Tuple
 from sqlalchemy.orm import Session as DbSession
 from sqlalchemy import text
 from chatarch.db.models import Session, Message
+from chatarch.core.parser.markdown import MarkdownParser
 
 def create_session_with_message(
     db: DbSession, 
@@ -112,4 +113,29 @@ def search_sessions_fts(db: DbSession, query_str: str, role: Optional[str] = Non
     sessions = db.query(Session).filter(Session.id.in_(hit_map.keys())).order_by(Session.created_at.desc()).limit(50).all()
     
     return [(s, hit_map[s.id]) for s in sessions]
+
+def update_session_from_text(db: DbSession, session: Session, new_text: str) -> None:
+    """使用新编辑的 Markdown 文本覆盖更新现有会话内容"""
+    parser = MarkdownParser()
+    # 我们调用解析文本的方法，并默认传承它原本的标题和标签作为备用
+    parsed_sessions = parser.parse_text(new_text, default_title=session.title, default_tags=session.tags)
+    
+    if not parsed_sessions:
+        raise ValueError("解析后的文本中未包含任何有效的会话内容")
+        
+    updated_model = parsed_sessions[0]
+    
+    # 覆盖标题（如果文本被 `# xxx` 语法修改了的话）
+    if updated_model.title and updated_model.title != "未命名":
+        session.title = updated_model.title
+        
+    # 覆盖消息体，利用 SQLAlchemy cascade="all, delete-orphan" 删除旧记录，插入新记录
+    session.messages = updated_model.messages
+    
+    # 更新版本号与元数据
+    session.version = (session.version or 1) + 1
+    
+    db.commit()
+    db.refresh(session)
+
 

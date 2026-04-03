@@ -6,7 +6,13 @@ from rich import print as rprint
 from pathlib import Path
 
 from chatarch.db.database import init_db, SessionLocal
-from chatarch.core.session import create_session_with_message, get_recent_sessions, search_sessions_fts, get_session_by_id
+from chatarch.core.session import (
+    create_session_with_message, 
+    get_recent_sessions, 
+    search_sessions_fts, 
+    get_session_by_id,
+    update_session_from_text
+)
 from chatarch.core.parser import get_parser
 from chatarch.core.exporter import get_exporter
 from rich.panel import Panel
@@ -55,7 +61,7 @@ def import_sessions(
     tags: str = typer.Option("", "--tags", help="附加标签 (逗号分隔)")
 ):
     """
-    从外部文件或目录导入聊天记录
+    从外部文件或目录批量导入聊天记录
     """
     source_path = Path(source)
     if not source_path.exists():
@@ -67,20 +73,42 @@ def import_sessions(
     db = SessionLocal()
     try:
         parser = get_parser(format)
-        sessions = parser.parse(source_path, default_tags=tags)
         
-        if not sessions:
+        # 收集需要处理的文件列表
+        files_to_process = []
+        if source_path.is_file():
+            files_to_process.append(source_path)
+            console.print(f"检测到单个文件，准备解析...")
+        elif source_path.is_dir():
+            # 根据格式推断后缀
+            ext_map = {"openai": "*.json", "markdown": "*.md", "md": "*.md", "txt": "*.txt"}
+            ext = ext_map.get(format.lower(), "*.*")
+            files_to_process = list(source_path.rglob(ext))
+            if not files_to_process:
+                 console.print(f"[yellow]在目录中未找到符合格式 ({ext}) 的文件。[/yellow]")
+                 return
+            console.print(f"扫描到目录中 [bold cyan]{len(files_to_process)}[/bold cyan] 个待处理文件。")
+            
+        all_sessions = []
+        for file_path in track(files_to_process, description="正在解析文件..."):
+            try:
+                sessions = parser.parse(file_path, default_tags=tags)
+                all_sessions.extend(sessions)
+            except Exception as e:
+                console.print(f"[yellow]⚠ 解析文件 {file_path.name} 时跳过: {e}[/yellow]")
+        
+        if not all_sessions:
             console.print("[yellow]未在文件中找到任何有效的会话记录。[/yellow]")
             return
 
-        console.print(f"解析成功，共找到 [bold green]{len(sessions)}[/bold green] 条会话，开始写入数据库...")
+        console.print(f"解析成功，共提取到 [bold green]{len(all_sessions)}[/bold green] 条会话，开始写入数据库...")
         
-        # 批量保存到数据库，使用 Rich 进度条
-        for session in track(sessions, description="正在入库..."):
+        # 批量保存到数据库
+        for session in track(all_sessions, description="正在入库..."):
             db.add(session)
         
         db.commit()
-        console.print("[bold green]✓ 导入完成！[/bold green]")
+        console.print(f"[bold green]✓ 导入完成！成功入库 {len(all_sessions)} 条会话。[/bold green]")
         
     except ValueError as e:
         console.print(f"[bold red]✗ 解析错误：[/bold red] {e}")
@@ -89,6 +117,7 @@ def import_sessions(
         db.rollback()
     finally:
         db.close()
+
 
 
 @app.command(name="list")
@@ -258,6 +287,51 @@ def export_sessions(
         console.print(f"[bold red]✗ 格式错误：[/bold red] {e}")
     except Exception as e:
         console.print(f"[bold red]✗ 导出失败：[/bold red] {e}")
+    finally:
+        db.close()
+
+@app.command(name="edit")
+def edit_session(
+    session_id: str = typer.Argument(..., help="要编辑的会话短 ID 或完整 ID")
+):
+    """
+    调用系统默认编辑器修改现有会话 (脱敏、删减废话)
+    """
+    db = SessionLocal()
+    try:
+        session = get_session_by_id(db, session_id)
+        if not session:
+            console.print(f"[bold red]✗ 找不到 ID 为 {session_id} 的会话。[/bold red]")
+            raise typer.Exit(1)
+            
+        # 构建初始的 Markdown 内容以供编辑
+        lines = []
+        lines.append(f"# {session.title or '未命名会话'}\n")
+        
+        for msg in session.messages:
+            lines.append(f"### {msg.role.capitalize()}\n")
+            lines.append(f"{msg.content}\n")
+            
+        initial_text = "\n".join(lines)
+        
+        console.print("[cyan]正在启动系统编辑器 (请保存并关闭文件以完成修改)...[/cyan]")
+        
+        import click
+        edited_text = click.edit(text=initial_text, extension=".md")
+        
+        if edited_text is None or edited_text.strip() == initial_text.strip():
+            console.print("[yellow]文本未发生任何更改，取消保存。[/yellow]")
+            return
+            
+        # 使用 Markdown 解析器重新提取内容并覆盖更新
+        update_session_from_text(db, session, edited_text)
+        
+        console.print(f"[bold green]✓ 修改已保存！当前版本为 v{session.version}[/bold green]")
+        
+    except ValueError as e:
+         console.print(f"[bold red]✗ 保存失败（数据格式错误）：[/bold red] {e}")
+    except Exception as e:
+        console.print(f"[bold red]✗ 发生未知错误：[/bold red] {e}")
     finally:
         db.close()
 

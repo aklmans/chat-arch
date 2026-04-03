@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from chatarch.db.models import Session, Message
 from .base import BaseParser
@@ -18,11 +18,19 @@ class MarkdownParser(BaseParser):
         with open(file_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
             
+        return self.parse_lines(lines, file_path.stem, default_tags)
+        
+    def parse_text(self, text: str, default_title: str = "未命名", default_tags: str = "") -> List[Session]:
+        """直接解析纯文本字符串"""
+        lines = text.splitlines(keepends=True)
+        return self.parse_lines(lines, default_title, default_tags)
+
+    def parse_lines(self, lines: List[str], default_title: str, default_tags: str = "") -> List[Session]:
         if not lines:
             return []
 
         # 启发式状态机变量
-        title = file_path.stem # 默认使用文件名作为标题
+        title = default_title
         messages: List[Message] = []
         
         current_role = "user" # 默认第一句话是 user 说的
@@ -90,3 +98,4 @@ class MarkdownParser(BaseParser):
         session.messages.extend(messages)
         
         return [session]
+
