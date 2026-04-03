@@ -25,6 +25,7 @@ from chatarch.core.stats import (
 )
 from chatarch.core.config import load_config, save_config, CONFIG_PATH
 from chatarch.core.enrich import enrich_session
+from chatarch.core.sanitizer import sanitize_text, sanitize_sessions
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.columns import Columns
@@ -51,13 +52,18 @@ def add_session(
     title: str = typer.Option(..., "--title", "-t", prompt=True, help="会话标题"),
     content: str = typer.Option(..., "--content", "-c", prompt=True, help="消息内容"),
     tags: str = typer.Option(None, "--tags", help="附加标签 (逗号分隔)"),
-    model_name: str = typer.Option("manual", "--model", "-m", help="模型名称")
+    model_name: str = typer.Option("manual", "--model", "-m", help="模型名称"),
+    sanitize: bool = typer.Option(True, "--sanitize/--no-sanitize", help="是否在入库前自动脱敏 PII (个人隐私信息)")
 ):
     """
     手动录入单条会话记录
     """
     db = SessionLocal()
     try:
+        if sanitize:
+            title = sanitize_text(title)
+            content = sanitize_text(content)
+            
         new_session = create_session_with_message(
             db=db,
             title=title,
@@ -75,7 +81,8 @@ def add_session(
 def import_sessions(
     source: str = typer.Option(..., "--source", "-s", help="文件或目录路径"),
     format: str = typer.Option("openai", "--format", "-f", help="导入格式: openai, claude, markdown, txt"),
-    tags: str = typer.Option("", "--tags", help="附加标签 (逗号分隔)")
+    tags: str = typer.Option("", "--tags", help="附加标签 (逗号分隔)"),
+    sanitize: bool = typer.Option(True, "--sanitize/--no-sanitize", help="是否在入库前自动脱敏 PII (个人隐私信息)")
 ):
     """
     从外部文件或目录批量导入聊天记录
@@ -117,6 +124,11 @@ def import_sessions(
         if not all_sessions:
             console.print("[yellow]未在文件中找到任何有效的会话记录。[/yellow]")
             return
+
+        # 如果开启脱敏，批量处理
+        if sanitize:
+            console.print("正在执行 PII 数据脱敏处理...")
+            all_sessions = sanitize_sessions(all_sessions)
 
         console.print(f"解析成功，共提取到 [bold green]{len(all_sessions)}[/bold green] 条会话，开始写入数据库...")
         
