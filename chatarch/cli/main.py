@@ -22,6 +22,8 @@ from chatarch.core.stats import (
     get_tag_distribution,
     get_daily_trend
 )
+from chatarch.core.config import load_config, save_config, CONFIG_PATH
+from chatarch.core.enrich import enrich_session
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.columns import Columns
@@ -29,6 +31,7 @@ from rich.layout import Layout
 from rich.align import Align
 from rich.text import Text
 from rich import box
+from rich.syntax import Syntax
 from sqlalchemy import func
 
 app = typer.Typer(help="ChatArch: 聊天资产管理 CLI 工具")
@@ -431,6 +434,69 @@ def show_stats():
         console.print(f"[bold red]✗ 统计失败：[/bold red] {e}")
     finally:
         db.close()
+
+@app.command(name="enrich")
+def enrich_session_cmd(
+    session_id: str = typer.Argument(..., help="要提炼的会话 ID"),
+    provider: str = typer.Option(None, "--provider", "-p", help="指定 LLM 提供商 (如: kimi, claude-code, ollama)")
+):
+    """
+    🧠 AI 智能提炼：自动为会话生成摘要和推荐标签
+    """
+    db = SessionLocal()
+    try:
+        session = get_session_by_id(db, session_id)
+        if not session:
+            console.print(f"[bold red]✗ 找不到 ID 为 {session_id} 的会话。[/bold red]")
+            raise typer.Exit(1)
+            
+        console.print(f"正在调用 [bold cyan]{provider or '默认'}[/bold cyan] AI 引擎对会话 [magenta]'{session.title}'[/magenta] 进行提炼...")
+        
+        # 实时获取 AI 生成的摘要和标签
+        result = enrich_session(session, provider_name=provider)
+        
+        new_summary = result.get("summary")
+        new_tags = result.get("tags", [])
+        
+        # 更新数据库中的会话
+        session.summary = new_summary
+        
+        # 合并旧标签和新推荐的标签（去重）
+        existing_tags = set([t.strip() for t in session.tags.split(",") if t.strip()]) if session.tags else set()
+        updated_tags = existing_tags.union(set(new_tags))
+        session.tags = ", ".join(sorted(list(updated_tags)))
+        
+        db.commit()
+        
+        # 结果展示
+        console.print(Panel(f"[bold green]摘要:[/bold green]\n{new_summary}\n\n[bold yellow]推荐标签:[/bold yellow]\n{', '.join(new_tags)}", title="✨ AI 提炼结果", border_style="green"))
+        console.print(f"[dim]已更新入库。当前所有标签: {session.tags}[/dim]")
+        
+    except Exception as e:
+        console.print(f"[bold red]✗ AI 提炼失败：[/bold red] {e}")
+    finally:
+        db.close()
+
+@app.command(name="config")
+def config_cmd(
+    edit: bool = typer.Option(False, "--edit", "-e", help="直接调用编辑器修改配置"),
+    show: bool = typer.Option(True, "--show", help="在终端显示当前配置")
+):
+    """
+    ⚙️ 管理 ChatArch 配置文件 (LLM 提供商、API Key 等)
+    """
+    if edit:
+        import click
+        click.launch(str(CONFIG_PATH))
+        console.print(f"[green]已尝试打开配置文件: {CONFIG_PATH}[/green]")
+        return
+        
+    config = load_config()
+    if show:
+        import yaml
+        yaml_str = yaml.dump(config, allow_unicode=True, sort_keys=False)
+        console.print(Panel(Syntax(yaml_str, "yaml", theme="monokai"), title=f"配置文件: {CONFIG_PATH}", border_style="blue"))
+        console.print("\n💡 提示: 使用 [bold cyan]chatasset config --edit[/bold cyan] 快速修改 API Key。")
 
 if __name__ == "__main__":
     app()
