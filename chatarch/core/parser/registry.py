@@ -5,6 +5,8 @@ from .base import BaseParser
 from .openai import OpenAIParser
 from .markdown import MarkdownParser
 from .claude import ClaudeParser
+from .gemini import GeminiParser
+from .cursor import CursorParser
 
 # 解析器注册表
 PARSER_REGISTRY: Dict[str, Type[BaseParser]] = {
@@ -12,6 +14,8 @@ PARSER_REGISTRY: Dict[str, Type[BaseParser]] = {
     "markdown": MarkdownParser,
     "md": MarkdownParser,
     "claude": ClaudeParser,
+    "gemini": GeminiParser,
+    "cursor": CursorParser,
 }
 
 def get_parser(format_name: str) -> BaseParser:

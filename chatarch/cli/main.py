@@ -80,7 +80,7 @@ def add_session(
 @app.command(name="import")
 def import_sessions(
     source: str = typer.Option(..., "--source", "-s", help="文件或目录路径"),
-    format: str = typer.Option("openai", "--format", "-f", help="导入格式: openai, claude, markdown, txt"),
+    format: str = typer.Option("openai", "--format", "-f", help="导入格式: openai, claude, gemini, cursor, markdown, txt"),
     tags: str = typer.Option("", "--tags", help="附加标签 (逗号分隔)"),
     sanitize: bool = typer.Option(True, "--sanitize/--no-sanitize", help="是否在入库前自动脱敏 PII (个人隐私信息)")
 ):
