@@ -2,7 +2,6 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from openai import OpenAI
-import httpx
 
 from chatarch.core.config import load_config
 from chatarch.db.models import Session
@@ -27,12 +26,11 @@ def get_llm_client(provider_name: Optional[str] = None) -> tuple[OpenAI, str]:
     custom_headers = p_config.get("custom_headers", {})
     
     # 兼容像 claude-code 需要特定 User-Agent 头的需求
-    http_client = httpx.Client(headers=custom_headers) if custom_headers else None
-    
+    # 在 openai-python SDK 中，直接传递 default_headers 才能有效覆盖默认的 User-Agent
     client = OpenAI(
         base_url=base_url,
         api_key=api_key,
-        http_client=http_client
+        default_headers=custom_headers if custom_headers else None
     )
     
     return client, model

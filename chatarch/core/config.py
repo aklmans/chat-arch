@@ -12,11 +12,12 @@ DEFAULT_CONFIG = {
         "default_provider": "kimi",
         "providers": {
             "kimi": {
-                "base_url": "https://api.moonshot.cn/v1",
+                "base_url": "https://api.kimi.com/coding/v1",
                 "api_key": "YOUR_KIMI_API_KEY",
-                "model": "moonshot-v1-8k",
+                "model": "kimi-for-coding",
                 "custom_headers": {
-                    "User-Agent": "claude-code/0.1.0"
+                    "User-Agent": "claude-code/0.1.0",
+                    "HTTP-Referer": "https://github.com/claude-code/claude-code"
                 }
             },
             "claude-code": {
